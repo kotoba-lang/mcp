@@ -137,5 +137,5 @@ whose `:transport` forwards requests to an upstream MCP host.
 ## Test
 
 ```
-clojure -X:test
+clojure -M:test
 ```
