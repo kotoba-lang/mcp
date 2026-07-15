@@ -127,7 +127,7 @@
                             "id"      3})]
     (is (= -32602 (get-in resp ["error" "code"])))))                     ; 20
 
-(deftest tools-call-valid-args-returns-tool-result
+(deftest tools-call-valid-args-wraps-in-calltoolresult
   (let [manifest (sample-manifest)
         fixture  {:tool      (reify p/ITool
                                (invoke [_ _ _] {"temperature" 22 "unit" "C"}))
@@ -136,8 +136,35 @@
                            {"jsonrpc" "2.0" "method" "tools/call"
                             "params"  {"name"      "get_forecast"
                                        "arguments" {"city" "Tokyo"}}
+                            "id"      4})
+        result   (get resp "result")]                                    ; 21
+    ;; MCP CallToolResult envelope: text content block + structuredContent + isError
+    (is (= "text" (get-in result ["content" 0 "type"])))
+    (is (= false (get result "isError")))
+    (is (= {"temperature" 22 "unit" "C"} (get result "structuredContent")))))
+
+(deftest tools-call-error-result-sets-iserror
+  (let [manifest (sample-manifest)
+        fixture  {:tool      (reify p/ITool
+                               (invoke [_ _ _] {:error "boom"}))
+                  :transport (:transport (e/default-ports))}
+        resp     (e/handle fixture manifest
+                           {"jsonrpc" "2.0" "method" "tools/call"
+                            "params"  {"name"      "get_forecast"
+                                       "arguments" {"city" "Tokyo"}}
                             "id"      4})]
-    (is (= {"temperature" 22 "unit" "C"} (get resp "result")))))         ; 21
+    (is (= true (get-in resp ["result" "isError"])))))
+
+(deftest tools-call-passthrough-preformed-calltoolresult
+  (let [pre      {"content" [{"type" "text" "text" "hi"}] "isError" false}
+        manifest (sample-manifest)
+        fixture  {:tool      (reify p/ITool (invoke [_ _ _] pre))
+                  :transport (:transport (e/default-ports))}
+        resp     (e/handle fixture manifest
+                           {"jsonrpc" "2.0" "method" "tools/call"
+                            "params"  {"name" "get_forecast" "arguments" {"city" "Tokyo"}}
+                            "id"      4})]
+    (is (= pre (get resp "result")))))
 
 (deftest unknown-method-returns-32601
   (let [manifest (sample-manifest)

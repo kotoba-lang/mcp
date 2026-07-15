@@ -37,6 +37,27 @@
                        (str "missing required param: \"" r "\"")))
                    required)))))
 
+;; --- tools/call result → MCP CallToolResult envelope ---
+
+(defn- error-result? [result]
+  (and (map? result)
+       (or (contains? result :error) (contains? result "error"))))
+
+(defn- call-tool-result
+  "Wrap an ITool/invoke result in an MCP CallToolResult envelope
+  ({\"content\" [{\"type\" \"text\" ...}] \"isError\" bool} plus \"structuredContent\"
+  when the result is a map). MCP clients (Claude Code included) render the text
+  block and read structuredContent for the machine-readable payload. If the tool
+  already returned a CallToolResult (a map carrying a string \"content\" key) it is
+  passed through unchanged. Text is EDN (pr-str) — execute stays pure/JSON-free;
+  the transport JSON-encodes the whole response (keyword keys → strings)."
+  [result]
+  (if (and (map? result) (contains? result "content"))
+    result
+    (cond-> {"content" [{"type" "text" "text" (pr-str result)}]
+             "isError" (error-result? result)}
+      (map? result) (assoc "structuredContent" result))))
+
 ;; --- tool/resource/prompt → JSON-ready descriptor ---
 
 (defn- schema-to-data [s]
@@ -101,7 +122,7 @@
           (let [errmsg (schema-error (:mcp/input-schema tool) args)]
             (if errmsg
               (err id -32602 errmsg)
-              (ok id (p/invoke (:tool ports) tool-name args))))))
+              (ok id (call-tool-result (p/invoke (:tool ports) tool-name args)))))))
 
       "resources/list"
       (ok id {"resources" (mapv resource-descriptor (m/resources model))})
